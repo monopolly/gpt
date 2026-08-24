@@ -1,0 +1,16 @@
+package gpt
+
+// name=Provider type=int
+
+openai //go{ProviderGPT} title{OpenAI} name{gpt}
+google //go{ProviderGemini} title{Google}  name{gemini}
+grok //go{ProviderGrok} title{Grok}  name{grok}
+deepseek //go{ProviderDeepseek} title{Deepseek}  name{deepseek}
+claude //go{ProviderClaude} title{Anthropic}  name{claude}
+
+mistral //go{ProviderMistral} title{Mistral}  name{mistral} iota=100
+cohere //go{ProviderCohere} title{Cohere}  name{cohere}
+meta //go{ProviderMeta} title{Meta}  name{meta}
+alibaba //go{ProviderAlibaba} title{Alibaba}  name{alibaba}
+kimi //go{ProviderKimi} title{Kimi}  name{kimi}
+perplexity //go{ProviderPerplexity} title{Perplexity}

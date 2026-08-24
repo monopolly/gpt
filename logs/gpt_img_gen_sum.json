@@ -1,0 +1,28 @@
+{
+    "model": {
+        "model_title": "GPT Image 1",
+        "model_name": "gpt-image-1",
+        "model_date_yyyy-mm-dd": "2025-04-01",
+        "provider_name": 0,
+        "input_price_for_1m_usd": 5,
+        "output_price_for_1m_usd": 0,
+        "resoning_price_for_1m_usd": 0,
+        "cached_price_for_1m_usd": 0,
+        "context_window_tokens": 0,
+        "is_image_recognition_support": false,
+        "is_image_files_links_upload_support": false,
+        "is_image_generation_support": true,
+        "is_multimodal_model": false,
+        "is_reasoning_model": false,
+        "tool_web_search_support": false
+    },
+    "input": 31,
+    "output": 6240,
+    "total": 6271,
+    "promt": 127,
+    "input_price": 0.000155,
+    "price": 0.000155,
+    "promt_text": "Create a clean photo of Rolex Daytona, Yellow Gold Green Dial, high details, cinematic. Small grass photo background. Pro-photo",
+    "time_duration": 59556579083,
+    "time_string": "59.556579083s"
+}
