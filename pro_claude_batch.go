@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/monopolly/images"
 )
@@ -75,7 +76,7 @@ func (a *claudeBatch) pushResults(ctx context.Context) (results []BatchResult, e
 
 	batch, err := a.conn.Messages.Batches.New(ctx, anthropic.MessageBatchNewParams{
 		Requests: requests,
-	})
+	}, claudeBatchOptions(list)...)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +96,7 @@ func (a *claudeBatch) pushResults(ctx context.Context) (results []BatchResult, e
 
 func (a *claudeBatch) renderRequests(messages []*Message) ([]anthropic.MessageBatchNewParamsRequest, map[string]*Message, error) {
 	model := a.engine.Model()
-	if model == nil || model.Name == "" {
+	if model == nil || model.ID == "" {
 		return nil, nil, fmt.Errorf("claude batch: empty model")
 	}
 
@@ -133,7 +134,7 @@ func (a *claudeBatch) renderRequests(messages []*Message) ([]anthropic.MessageBa
 
 func (a *claudeBatch) messageParams(model *Model, m *Message) anthropic.MessageBatchNewParamsRequestParams {
 	params := anthropic.MessageBatchNewParamsRequestParams{
-		Model:     anthropic.Model(model.Name),
+		Model:     anthropic.Model(model.ID),
 		MaxTokens: claudeMaxTokens(model),
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(claudeBlocks(m)...),
@@ -155,8 +156,25 @@ func (a *claudeBatch) messageParams(model *Model, m *Message) anthropic.MessageB
 	return params
 }
 
+// user content: uploaded files, uploaded images, inline images, promt
 func claudeBlocks(m *Message) []anthropic.ContentBlockParamUnion {
-	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.images)+1)
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.files)+len(m.imagefiles)+len(m.images)+1)
+
+	// documents uploaded before (UploadFile)
+	for _, id := range m.files {
+		if id == "" {
+			continue
+		}
+		blocks = append(blocks, claudeFileBlock("document", id))
+	}
+
+	// images uploaded before (UploadFile)
+	for _, id := range m.imagefiles {
+		if id == "" {
+			continue
+		}
+		blocks = append(blocks, claudeFileBlock("image", id))
+	}
 
 	for _, img := range m.images {
 		if img == nil {
@@ -167,6 +185,40 @@ func claudeBlocks(m *Message) []anthropic.ContentBlockParamUnion {
 
 	blocks = append(blocks, anthropic.NewTextBlock(m.RenderPromt()))
 	return blocks
+}
+
+// file id blocks are files api (beta) only, the sdk has no typed source for them
+func claudeFileBlock(kind, fileID string) anthropic.ContentBlockParamUnion {
+	raw, _ := json.Marshal(map[string]any{
+		"type": kind,
+		"source": map[string]any{
+			"type":    "file",
+			"file_id": fileID,
+		},
+	})
+
+	return param.Override[anthropic.ContentBlockParamUnion](json.RawMessage(raw))
+}
+
+// files api requires the beta header on the messages request
+func claudeOptions(m *Message) (opts []anthropicoption.RequestOption) {
+	if m == nil || (len(m.files) == 0 && len(m.imagefiles) == 0) {
+		return
+	}
+
+	return []anthropicoption.RequestOption{
+		anthropicoption.WithHeaderAdd("anthropic-beta", string(anthropic.AnthropicBetaFilesAPI2025_04_14)),
+	}
+}
+
+// files api beta header for every message of the batch
+func claudeBatchOptions(list []*Message) (opts []anthropicoption.RequestOption) {
+	for _, m := range list {
+		if o := claudeOptions(m); o != nil {
+			return o
+		}
+	}
+	return
 }
 
 func claudeImageBase64JPEG(img *images.Image) string {

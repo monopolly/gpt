@@ -119,7 +119,7 @@ func (a *gptBatch) pushResults(ctx context.Context) (results []BatchResult, err 
 
 func (a *gptBatch) renderJSONL(ctx context.Context, messages []*Message) ([]byte, map[string]*Message, error) {
 	model := a.engine.Model()
-	if model == nil || model.Name == "" {
+	if model == nil || model.ID == "" {
 		return nil, nil, errors.New("openai batch: empty model")
 	}
 
@@ -169,7 +169,7 @@ func (a *gptBatch) renderJSONL(ctx context.Context, messages []*Message) ([]byte
 
 func (a *gptBatch) messageBody(model *Model, m *Message) map[string]any {
 	body := map[string]any{
-		"model": model.Name,
+		"model": model.ID,
 		"input": batchInput(m),
 	}
 
@@ -246,7 +246,32 @@ func (a *gptBatch) ensureConversation(ctx context.Context, m *Message) error {
 }
 
 func batchInput(m *Message) []map[string]any {
-	content := make([]map[string]any, 0, len(m.images)+1)
+	content := make([]map[string]any, 0, len(m.files)+len(m.imagefiles)+len(m.images)+1)
+
+	// documents uploaded before (UploadFile)
+	for _, id := range m.files {
+		if id == "" {
+			continue
+		}
+
+		content = append(content, map[string]any{
+			"type":    "input_file",
+			"file_id": id,
+		})
+	}
+
+	// images uploaded before (UploadFile)
+	for _, id := range m.imagefiles {
+		if id == "" {
+			continue
+		}
+
+		content = append(content, map[string]any{
+			"type":    "input_image",
+			"file_id": id,
+			"detail":  "auto",
+		})
+	}
 
 	for _, img := range m.images {
 		if img == nil {

@@ -3,9 +3,11 @@ package gpt
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/genai"
@@ -22,7 +24,7 @@ func Gemini(token string, model ...*Model) (a Engine) {
 	case true:
 		p.model = model[0]
 	default:
-		p.model = &Model_Gemini_2_5_Flash_x0_2
+		p.model = &Model_Gemini_Medium
 	}
 
 	p.provider = ProviderGemini
@@ -46,10 +48,17 @@ type gemini struct {
 	provider Provider
 	model    *Model
 	token    string
+
+	fallback []Engine
 }
 
 func (a *gemini) Provider() Provider {
 	return a.provider
+}
+
+func (a *gemini) Fallback(v ...Engine) Engine {
+	a.fallback = append(a.fallback, v...)
+	return a
 }
 
 func (a *gemini) getToken() string {
@@ -64,6 +73,99 @@ func (a *gemini) Model(v ...*Model) *Model {
 		a.model = v[0]
 		return nil
 	}
+}
+
+// upload a file to the gemini files api.
+// accepts any gemini-compatible format (pdf, images, audio, video, text, etc).
+// an explicit filename (with extension) helps the api detect the format.
+// returns the file resource name (files/xxx), it is the fileID for Message.AddFiles.
+func (a *gemini) UploadFile(body []byte, filename ...string) (fileID string, err error) {
+	if a.conn == nil {
+		return "", errors.New("gemini upload: nil client")
+	}
+	if len(body) == 0 {
+		return "", errors.New("gemini upload: empty body")
+	}
+
+	f := newUploadFile(body, filename...)
+
+	ctx := context.Background()
+	up, err := a.conn.Files.Upload(ctx, f, &genai.UploadFileConfig{
+		MIMEType:    f.ContentType(),
+		DisplayName: f.Filename(),
+	})
+	if err != nil {
+		return "", err
+	}
+	if up == nil || up.Name == "" {
+		return "", errors.New("gemini upload: empty file name")
+	}
+
+	// the file must be processed before it can be used in a request
+	up, err = a.waitFile(ctx, up)
+	if err != nil {
+		return "", err
+	}
+
+	geminiFileStore(a.token, up)
+	return up.Name, nil
+}
+
+// wait until the uploaded file is ACTIVE
+func (a *gemini) waitFile(ctx context.Context, f *genai.File) (res *genai.File, err error) {
+	deadline := time.Now().Add(geminiFileTimeout)
+
+	for {
+		switch f.State {
+		case genai.FileStateActive:
+			return f, nil
+		case genai.FileStateFailed:
+			return nil, fmt.Errorf("gemini upload: file %s processing failed", f.Name)
+		}
+
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("gemini upload: file %s is still processing", f.Name)
+		}
+
+		time.Sleep(time.Second)
+
+		f, err = a.conn.Files.Get(ctx, f.Name, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+}
+
+// delete stored files
+func (a *gemini) DeleteFiles(filesID ...string) (err error) {
+	if a.conn == nil {
+		return errors.New("gemini delete: nil client")
+	}
+
+	ctx := context.Background()
+	for _, id := range filesID {
+		name := geminiFileName(id)
+		if name == "" {
+			continue
+		}
+		if _, e := a.conn.Files.Delete(ctx, name, nil); e != nil {
+			err = e
+		}
+		geminiFileForget(a.token, name)
+	}
+	return
+}
+
+// gemini has no server side conversations, attach files to the message instead:
+// Message.AddFiles / Message.AddImageFiles
+func (a *gemini) AddFiles(conversationID string, filesID ...string) (err error) {
+	return errors.New("gemini has no conversations: use Message.AddFiles")
+}
+
+// gemini has no server side conversations, attach files to the message instead:
+// Message.AddFiles / Message.AddImageFiles
+func (a *gemini) AddImageFiles(conversationID string, filesID ...string) (err error) {
+	return errors.New("gemini has no conversations: use Message.AddImageFiles")
 }
 
 func (a *gemini) Chat(m *Message) (res string, err error) {
@@ -123,7 +225,12 @@ func (a *gemini) Send(m *Message) (err error) {
 		})
 	}
 
-	for _, part := range a.images(m) {
+	fileparts, err := geminiFileParts(context.Background(), a.conn, a.token, m)
+	if err != nil {
+		return err
+	}
+
+	for _, part := range append(fileparts, a.images(m)...) {
 		if part == nil {
 			continue
 		}
@@ -148,7 +255,7 @@ func (a *gemini) Send(m *Message) (err error) {
 
 	resp, err := a.conn.Models.GenerateContent(
 		context.Background(),
-		a.model.Name,
+		a.model.ID,
 		[]*genai.Content{
 			{
 				Parts: userparts,
@@ -158,7 +265,14 @@ func (a *gemini) Send(m *Message) (err error) {
 		&config,
 	)
 	if err != nil {
-		return err
+		for _, x := range a.fallback {
+			err = nil
+			err = x.Send(m)
+			if err != nil {
+				continue
+			}
+		}
+		return
 	}
 
 	m.raw = CleanMarkdown(resp.Text())
@@ -197,5 +311,93 @@ func (a *gemini) images(m *Message) (parts []*genai.Part) {
 		}}
 		parts = append(parts, &p)
 	}
+	return
+}
+
+// gemini refers to uploaded files by uri + mime type, both come from the files api.
+// files are immutable, so the resolved data is cached per api key.
+const geminiFileTimeout = 2 * time.Minute
+
+type geminiFileData struct {
+	uri  string
+	mime string
+}
+
+var (
+	geminiFilesMu sync.RWMutex
+	geminiFiles   = map[string]geminiFileData{}
+)
+
+// files/xxx resource name from a name, id or uri
+func geminiFileName(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	if i := strings.LastIndex(id, "files/"); i >= 0 {
+		return id[i:]
+	}
+	return "files/" + id
+}
+
+func geminiFileKey(token, name string) string {
+	return token + "|" + name
+}
+
+func geminiFileStore(token string, f *genai.File) {
+	if f == nil || f.Name == "" || f.URI == "" {
+		return
+	}
+
+	geminiFilesMu.Lock()
+	geminiFiles[geminiFileKey(token, f.Name)] = geminiFileData{uri: f.URI, mime: f.MIMEType}
+	geminiFilesMu.Unlock()
+}
+
+func geminiFileForget(token, name string) {
+	geminiFilesMu.Lock()
+	delete(geminiFiles, geminiFileKey(token, name))
+	geminiFilesMu.Unlock()
+}
+
+func geminiFileGet(token, name string) (res geminiFileData, ok bool) {
+	geminiFilesMu.RLock()
+	res, ok = geminiFiles[geminiFileKey(token, name)]
+	geminiFilesMu.RUnlock()
+	return
+}
+
+// resolve uploaded file ids into gemini file parts
+func geminiFileParts(ctx context.Context, conn *genai.Client, token string, m *Message) (parts []*genai.Part, err error) {
+	ids := append(append([]string{}, m.files...), m.imagefiles...)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if conn == nil {
+		return nil, errors.New("gemini files: nil client")
+	}
+
+	for _, id := range ids {
+		name := geminiFileName(id)
+		if name == "" {
+			continue
+		}
+
+		data, ok := geminiFileGet(token, name)
+		if !ok {
+			f, e := conn.Files.Get(ctx, name, nil)
+			if e != nil {
+				return nil, e
+			}
+			if f == nil || f.URI == "" {
+				return nil, fmt.Errorf("gemini files: %s not found", name)
+			}
+			geminiFileStore(token, f)
+			data = geminiFileData{uri: f.URI, mime: f.MIMEType}
+		}
+
+		parts = append(parts, genai.NewPartFromURI(data.uri, data.mime))
+	}
+
 	return
 }

@@ -7,11 +7,10 @@ var (
 	// Claude — VERIFIED MODELS
 	// =========================
 
-	Model_Claude_Haiku_4_x1_5 = Model{
+	Model_Claude_Mini = Model{
+		ID:       "claude-haiku-4-5",
 		Provider: ProviderClaude,
-
-		Title: "Claude Haiku 4.5",
-		Name:  "claude-haiku-4-5",
+		Year:     2025,
 
 		Input:  1.00,
 		Output: 5.00,
@@ -27,43 +26,41 @@ var (
 		WebSearch:    false,
 	}
 
-	Model_Claude_Sonnet_4_x3_15 = Model{
+	Model_Claude_Medium = Model{
+		ID:       "claude-sonnet-4-6",
 		Provider: ProviderClaude,
-
-		Title: "Claude Sonnet 4.6",
-		Name:  "claude-sonnet-4-6",
+		Year:     2025,
 
 		Input:  3.00,
 		Output: 15.00,
-		Cached: 0.30,
+		Cached: 0.10,
 
-		Context: 200000,
+		Context: 1_000_000,
 
 		ImageSupport: true,
 		ImageFiles:   true,
 
 		IsMultimodal: true,
-		IsReasoning:  true,
+		IsReasoning:  false,
 		WebSearch:    false,
 	}
 
-	Model_Claude_Opus_4_x15_75 = Model{
+	Model_Claude_Pro = Model{
+		ID:       "claude-opus-4-8",
 		Provider: ProviderClaude,
-
-		Title: "Claude Opus 4.7",
-		Name:  "claude-opus-4-7",
+		Year:     2026,
 
 		Input:  5.00,
 		Output: 25.00,
-		Cached: 0.50,
+		Cached: 0.10,
 
-		Context: 1000000,
+		Context: 1_000_000,
 
 		ImageSupport: true,
 		ImageFiles:   true,
 
 		IsMultimodal: true,
-		IsReasoning:  true,
+		IsReasoning:  false,
 		WebSearch:    false,
 	}
 )

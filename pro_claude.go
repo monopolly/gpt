@@ -3,6 +3,7 @@ package gpt
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -17,7 +18,7 @@ func Claude(token string, model ...*Model) (a Engine) {
 	if len(model) > 0 {
 		p.model = model[0]
 	} else {
-		p.model = &Model_Claude_Sonnet_4_x3_15
+		p.model = &Model_Claude_Mini
 	}
 
 	p.token = token
@@ -30,10 +31,17 @@ type claude struct {
 	model    *Model
 	provider Provider
 	token    string
+
+	fallback []Engine
 }
 
 func (a *claude) Provider() Provider {
 	return a.provider
+}
+
+func (a *claude) Fallback(v ...Engine) Engine {
+	a.fallback = append(a.fallback, v...)
+	return a
 }
 
 func (a *claude) Model(v ...*Model) *Model {
@@ -52,6 +60,57 @@ func (a *claude) Models() (res []Model, err error) {
 
 func (a *claude) getToken() string {
 	return a.token
+}
+
+// upload a file to the anthropic files api (beta).
+// accepts any claude-compatible format (pdf, images, text, etc).
+// an explicit filename (with extension) helps the api detect the format.
+func (a *claude) UploadFile(body []byte, filename ...string) (fileID string, err error) {
+	if len(body) == 0 {
+		return "", errors.New("claude upload: empty body")
+	}
+
+	ctx := context.Background()
+	resp, err := a.conn.Beta.Files.Upload(ctx, anthropic.BetaFileUploadParams{
+		File:  newUploadFile(body, filename...),
+		Betas: []anthropic.AnthropicBeta{anthropic.AnthropicBetaFilesAPI2025_04_14},
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp.ID == "" {
+		return "", errors.New("claude upload: empty file id")
+	}
+
+	return resp.ID, nil
+}
+
+// delete stored files
+func (a *claude) DeleteFiles(filesID ...string) (err error) {
+	ctx := context.Background()
+	for _, id := range filesID {
+		if id == "" {
+			continue
+		}
+		if _, e := a.conn.Beta.Files.Delete(ctx, id, anthropic.BetaFileDeleteParams{
+			Betas: []anthropic.AnthropicBeta{anthropic.AnthropicBetaFilesAPI2025_04_14},
+		}); e != nil {
+			err = e
+		}
+	}
+	return
+}
+
+// claude has no server side conversations, attach files to the message instead:
+// Message.AddFiles / Message.AddImageFiles
+func (a *claude) AddFiles(conversationID string, filesID ...string) (err error) {
+	return errors.New("claude has no conversations: use Message.AddFiles")
+}
+
+// claude has no server side conversations, attach files to the message instead:
+// Message.AddFiles / Message.AddImageFiles
+func (a *claude) AddImageFiles(conversationID string, filesID ...string) (err error) {
+	return errors.New("claude has no conversations: use Message.AddImageFiles")
 }
 
 func (a *claude) Chat(m *Message) (res string, err error) {
@@ -82,19 +141,11 @@ func (a *claude) Send(m *Message) (err error) {
 	promt := m.RenderPromt()
 	system := m.RenderSystemPromt()
 
-	var blocks []anthropic.ContentBlockParamUnion
-
-	for _, x := range m.images {
-		blocks = append(blocks, anthropic.NewImageBlockBase64("image/jpeg", claudeImageBase64JPEG(x)))
-	}
-
-	blocks = append(blocks, anthropic.NewTextBlock(promt))
-
 	req := anthropic.MessageNewParams{
-		Model:     anthropic.Model(a.model.Name),
+		Model:     anthropic.Model(a.model.ID),
 		MaxTokens: int64(a.model.Output * 1000),
 		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(blocks...),
+			anthropic.NewUserMessage(claudeBlocks(m)...),
 		},
 	}
 
@@ -110,8 +161,15 @@ func (a *claude) Send(m *Message) (err error) {
 		}
 	}
 
-	resp, err := a.conn.Messages.New(context.Background(), req)
+	resp, err := a.conn.Messages.New(context.Background(), req, claudeOptions(m)...)
 	if err != nil {
+		for _, x := range a.fallback {
+			err = nil
+			err = x.Send(m)
+			if err != nil {
+				continue
+			}
+		}
 		return
 	}
 

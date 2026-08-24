@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,6 +48,8 @@ type Message struct {
 	provider     Provider
 	temperature  float64
 	images       []*images.Image //base64 or links
+	files        []string        //uploaded file id (documents: pdf, txt, json...)
+	imagefiles   []string        //uploaded file id (images)
 	result       any             // &Res
 	schema       map[string]any  //json schema
 	schemarender string          //json string {"":1...}
@@ -255,13 +258,16 @@ func (a *Message) CleanText() string {
 }
 
 // set model
-func (a *Message) WebSearch() (m *Message) {
-	a.websearch = true
+func (a *Message) SetWebSearch(v bool) (m *Message) {
+	a.websearch = v
 	return a
 }
 
 // add promt
 func (a *Message) WebSearchDomains(domains ...string) (m *Message) {
+	if len(domains) == 0 {
+		return a
+	}
 	a.websearch = true
 	a.domains = append(a.domains, domains...)
 	return a
@@ -325,4 +331,45 @@ func (a *Message) imagesSize() (bytes int) {
 		bytes += x.Size
 	}
 	return
+}
+
+// attach files uploaded before (fileID from Engine.UploadFile): pdf, text, json, csv...
+func (a *Message) AddFiles(fileIDs ...string) (m *Message) {
+	a.files = addFileIDs(a.files, fileIDs)
+	return a
+}
+
+// attach images uploaded before (fileID from Engine.UploadFile)
+func (a *Message) AddImageFiles(fileIDs ...string) (m *Message) {
+	a.imagefiles = addFileIDs(a.imagefiles, fileIDs)
+	return a
+}
+
+// attached document file ids
+func (a *Message) Files() []string {
+	return a.files
+}
+
+// attached image file ids
+func (a *Message) ImageFiles() []string {
+	return a.imagefiles
+}
+
+// drop all attached file ids
+func (a *Message) ClearFiles() (m *Message) {
+	a.files = nil
+	a.imagefiles = nil
+	return a
+}
+
+// clean, dedup and append file ids
+func addFileIDs(list []string, add []string) []string {
+	for _, id := range add {
+		id = strings.TrimSpace(id)
+		if id == "" || slices.Contains(list, id) {
+			continue
+		}
+		list = append(list, id)
+	}
+	return list
 }

@@ -1,6 +1,6 @@
 module github.com/monopolly/gpt
 
-go 1.25.8
+go 1.26.3
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.45.0
@@ -9,7 +9,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/monopolly/file v0.0.0-20260512105950-963f9f41b40b
 	github.com/monopolly/images v0.0.0-20260212193722-058a8af2051d
-	github.com/openai/openai-go/v3 v3.37.0
+	github.com/openai/openai-go/v3 v3.44.0
 	google.golang.org/genai v1.58.0
 )
 
@@ -27,7 +27,6 @@ require (
 	github.com/buger/jsonparser v1.2.0 // indirect
 	github.com/cavaliergopher/grab/v3 v3.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/dc0d/retry v1.2.0 // indirect
 	github.com/disintegration/gift v1.2.1 // indirect
 	github.com/disintegration/imaging v1.6.2 // indirect
 	github.com/ebitengine/purego v0.10.0 // indirect
@@ -59,7 +58,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/monopolly/dirwatch v0.0.0-20220710193501-2f0afdfd87ef // indirect
 	github.com/monopolly/errors v0.0.0-20260515115330-44b4563ebba5 // indirect
 	github.com/monopolly/jsons v0.0.0-20260525163037-3c895072bec3 // indirect
 	github.com/monopolly/useragent v0.0.0-20220710193710-261fb66b5f7a // indirect
@@ -68,11 +66,8 @@ require (
 	github.com/nxshock/colorcrop v0.0.0-20210323183931-9fb5e5006ee3 // indirect
 	github.com/oliamb/cutter v0.2.2 // indirect
 	github.com/paulmach/orb v0.13.0 // indirect
-	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pquerna/ffjson v0.0.0-20190930134022-aa0246cd15f7 // indirect
-	github.com/rs/xid v1.6.0 // indirect
 	github.com/sashabaranov/go-openai v1.41.2 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shamaton/msgpack v1.2.1 // indirect
@@ -94,7 +89,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.4 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/image v0.41.0 // indirect
 	golang.org/x/net v0.55.0 // indirect

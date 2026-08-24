@@ -26,7 +26,7 @@ func GPT(token string, model ...*Model) (a Engine) {
 	case true:
 		p.model = model[0]
 	default:
-		p.model = &Model_GPT_5_4_Mini_x1_5
+		p.model = &Model_GPT_Mini
 	}
 	p.provider = ProviderGPT
 	return p
@@ -37,6 +37,8 @@ type gpt struct {
 	model    *Model
 	provider Provider
 	token    string
+
+	fallback []Engine
 }
 
 func (a *gpt) Provider() Provider {
@@ -57,12 +59,17 @@ func (a *gpt) Model(v ...*Model) *Model {
 	}
 }
 
+func (a *gpt) Fallback(v ...Engine) Engine {
+	a.fallback = append(a.fallback, v...)
+	return a
+}
+
 func (a *gpt) Chat(m *Message) (res string, err error) {
 	if m.name == "" {
 		m.name = "chat"
 	}
 	if m.plaintext {
-		m.Promt("Answer must be plain text! No markdown!")
+		m.SystemPromt("RESPONSE MUST BE PLAIN TEXT! STRICT")
 	}
 	err = a.Send(m)
 	if err != nil {
@@ -84,45 +91,17 @@ func (a *gpt) Send(m *Message) (err error) {
 	}
 
 	t1 := time.Now()
-	ctx := context.Background()
+	ctx, cancel := reqContext(m.timeout)
+	defer cancel()
 	promt := m.RenderPromt()
 	system := m.RenderSystemPromt()
 
-	var inputlist []responses.ResponseInputContentUnionParam
-
-	// images
-	for _, x := range m.images {
-		p := responses.ResponseInputContentUnionParam{
-			OfInputImage: &responses.ResponseInputImageParam{
-				Detail:   responses.ResponseInputImageDetailAuto,
-				ImageURL: openai.String(x.JPGBase64HTML(80)),
-			}}
-		inputlist = append(inputlist, p)
-	}
-
-	// text
-	inputlist = append(inputlist, responses.ResponseInputContentUnionParam{
-		OfInputText: &responses.ResponseInputTextParam{
-			Text: promt,
-		},
-	})
-
-	// params
-	var params responses.ResponseInputMessageContentListParam
-	params = append(params, inputlist...)
-	input := responses.ResponseNewParamsInputUnion{
-		OfInputItemList: responses.ResponseInputParam{
-			responses.ResponseInputItemParamOfMessage(
-				params,
-				responses.EasyInputMessageRoleUser,
-			),
-		},
-	}
-
 	// req
 	req := responses.ResponseNewParams{
-		Model: a.model.Name,
-		Input: input,
+		Model: a.model.ID,
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: buildUserInput(m, promt),
+		},
 	}
 	if m.store {
 		req.Store = openai.Bool(true)
@@ -162,6 +141,11 @@ func (a *gpt) Send(m *Message) (err error) {
 
 	resp, err := a.conn.Responses.New(ctx, req)
 	if err != nil {
+		for _, x := range a.fallback {
+			if err = x.Send(m); err == nil {
+				return nil
+			}
+		}
 		return
 	}
 
@@ -179,8 +163,8 @@ func (a *gpt) Send(m *Message) (err error) {
 	m.summary = Summary{
 		Chat:       m.chat,
 		Model:      a.model,
-		Promt:      len(m.RenderPromt()),
-		System:     len(m.RenderSystemPromt()),
+		Promt:      len(promt),
+		System:     len(system),
 		Images:     m.imagesSize(),
 		Input:      int(resp.Usage.InputTokens),
 		Cached:     int(resp.Usage.InputTokensDetails.CachedTokens),
@@ -264,24 +248,25 @@ func (a *gpt) Image(m *ImageReq) (res ImageResp, err error) {
 	}
 
 	model := m.Model()
-	if model == nil || model.Name == "" {
-		model = &Model_GPT_Image_v1_x5
+	if model == nil || model.ID == "" {
+		model = &Model_GPT_Image
 	}
 
-	ctx := context.Background()
+	ctx, cancel := reqContext(m.timeout)
+	defer cancel()
 	var resp *openai.ImagesResponse
 
 	if len(m.images) > 0 {
 		req := openai.ImageEditParams{
 			Image:  gptImageEditInput(m),
-			Model:  openai.ImageModel(model.Name),
+			Model:  openai.ImageModel(model.ID),
 			Prompt: fullpromt,
 		}
 		applyGPTImageEditParams(&req, m)
 		resp, err = a.conn.Images.Edit(ctx, req)
 	} else {
 		req := openai.ImageGenerateParams{
-			Model:  openai.ImageModel(model.Name),
+			Model:  openai.ImageModel(model.ID),
 			Prompt: fullpromt,
 		}
 		applyGPTImageGenerateParams(&req, m)
@@ -415,4 +400,197 @@ func gptImageResp(resp *openai.ImagesResponse) (res ImageResp, err error) {
 	}
 
 	return res, nil
+}
+
+// accepts any gpt-compatible format (pdf, images, text, etc).
+// an explicit filename (with extension) helps the api detect the format.
+func (a *gpt) UploadFile(body []byte, filename ...string) (fileID string, err error) {
+	if err = a.filesSupported(); err != nil {
+		return "", err
+	}
+	if len(body) == 0 {
+		return "", errors.New("openai upload: empty body")
+	}
+
+	f := newUploadFile(body, filename...)
+
+	ctx := context.Background()
+	// images must be uploaded as vision to be usable as input_image
+	purpose := openai.FilePurposeUserData
+	if strings.HasPrefix(f.ContentType(), "image/") {
+		purpose = openai.FilePurposeVision
+	}
+
+	resp, err := a.conn.Files.New(ctx, openai.FileNewParams{
+		File:    openai.File(f, f.Filename(), f.ContentType()),
+		Purpose: purpose,
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp.ID == "" {
+		return "", errors.New("openai upload: empty file id")
+	}
+
+	return resp.ID, nil
+}
+
+// add files to an existing chat conversation as images (input_image)
+func (a *gpt) AddImageFiles(conversationID string, filesID ...string) (err error) {
+	if err = a.filesSupported(); err != nil {
+		return err
+	}
+	if conversationID == "" {
+		return errors.New("openai add image files: empty conversation id")
+	}
+	if len(filesID) == 0 {
+		return nil
+	}
+
+	var content responses.ResponseInputMessageContentListParam
+	for _, id := range filesID {
+		if id == "" {
+			continue
+		}
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputImage: &responses.ResponseInputImageParam{
+				Detail: responses.ResponseInputImageDetailAuto,
+				FileID: openai.String(id),
+			},
+		})
+	}
+	if len(content) == 0 {
+		return nil
+	}
+
+	ctx := context.Background()
+	_, err = a.conn.Conversations.Items.New(ctx, conversationID, conversations.ItemNewParams{
+		Items: responses.ResponseInputParam{
+			responses.ResponseInputItemParamOfMessage(
+				content,
+				responses.EasyInputMessageRoleUser,
+			),
+		},
+	})
+	return
+}
+
+// add files to an existing chat conversation
+func (a *gpt) AddFiles(conversationID string, filesID ...string) (err error) {
+	if err = a.filesSupported(); err != nil {
+		return err
+	}
+	if conversationID == "" {
+		return errors.New("openai add files: empty conversation id")
+	}
+	if len(filesID) == 0 {
+		return nil
+	}
+
+	var content responses.ResponseInputMessageContentListParam
+	for _, id := range filesID {
+		if id == "" {
+			continue
+		}
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputFile: &responses.ResponseInputFileParam{
+				FileID: openai.String(id),
+			},
+		})
+	}
+	if len(content) == 0 {
+		return nil
+	}
+
+	ctx := context.Background()
+	_, err = a.conn.Conversations.Items.New(ctx, conversationID, conversations.ItemNewParams{
+		Items: responses.ResponseInputParam{
+			responses.ResponseInputItemParamOfMessage(
+				content,
+				responses.EasyInputMessageRoleUser,
+			),
+		},
+	})
+	return
+}
+
+// reqContext returns a context honoring the request timeout, if set.
+func reqContext(timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout > 0 {
+		return context.WithTimeout(context.Background(), timeout)
+	}
+	return context.Background(), func() {}
+}
+
+// files api is used only for openai, other providers on this client (x.ai) are not verified
+func (a *gpt) filesSupported() error {
+	if a.provider != ProviderGPT {
+		return fmt.Errorf("%s files api is not supported", a.provider.Title())
+	}
+	return nil
+}
+
+// buildUserInput assembles a single user message from the request files, images and prompt.
+func buildUserInput(m *Message, promt string) responses.ResponseInputParam {
+	var content responses.ResponseInputMessageContentListParam
+
+	// documents uploaded before (UploadFile)
+	for _, id := range m.files {
+		if id == "" {
+			continue
+		}
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputFile: &responses.ResponseInputFileParam{
+				FileID: openai.String(id),
+			},
+		})
+	}
+
+	// images uploaded before (UploadFile)
+	for _, id := range m.imagefiles {
+		if id == "" {
+			continue
+		}
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputImage: &responses.ResponseInputImageParam{
+				Detail: responses.ResponseInputImageDetailAuto,
+				FileID: openai.String(id),
+			},
+		})
+	}
+
+	for _, x := range m.images {
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputImage: &responses.ResponseInputImageParam{
+				Detail:   responses.ResponseInputImageDetailAuto,
+				ImageURL: openai.String(x.JPGBase64HTML(80)),
+			},
+		})
+	}
+
+	content = append(content, responses.ResponseInputContentUnionParam{
+		OfInputText: &responses.ResponseInputTextParam{Text: promt},
+	})
+
+	return responses.ResponseInputParam{
+		responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRoleUser),
+	}
+}
+
+// delete stored files
+func (a *gpt) DeleteFiles(filesID ...string) (err error) {
+	if err = a.filesSupported(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	for _, id := range filesID {
+		if id == "" {
+			continue
+		}
+		if _, e := a.conn.Files.Delete(ctx, id); e != nil {
+			err = e
+		}
+	}
+	return
 }

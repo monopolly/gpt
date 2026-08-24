@@ -84,7 +84,7 @@ func (a *geminiBatch) pushResults(ctx context.Context) (results []BatchResult, e
 
 	job, err := a.conn.Batches.Create(
 		ctx,
-		geminiBatchModel(model.Name),
+		geminiBatchModel(model.ID),
 		&genai.BatchJobSource{InlinedRequests: requests},
 		&genai.CreateBatchJobConfig{DisplayName: a.name},
 	)
@@ -101,7 +101,7 @@ func (a *geminiBatch) pushResults(ctx context.Context) (results []BatchResult, e
 }
 
 func (a *geminiBatch) renderRequests(messages []*Message, model *Model) ([]*genai.InlinedRequest, []string, map[string]*Message, error) {
-	if model == nil || model.Name == "" {
+	if model == nil || model.ID == "" {
 		return nil, nil, nil, errors.New("gemini batch: empty model")
 	}
 
@@ -122,7 +122,10 @@ func (a *geminiBatch) renderRequests(messages []*Message, model *Model) ([]*gena
 		}
 
 		customID := a.customID(i, m)
-		parts := geminiBatchParts(m)
+		parts, err := a.batchParts(m)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		if len(parts) == 0 {
 			return nil, nil, nil, fmt.Errorf("gemini batch item %s empty request", customID)
 		}
@@ -148,12 +151,19 @@ func (a *geminiBatch) renderRequests(messages []*Message, model *Model) ([]*gena
 	return requests, customIDs, lookup, nil
 }
 
-func geminiBatchParts(m *Message) []*genai.Part {
-	parts := make([]*genai.Part, 0, len(m.images)+1)
+func (a *geminiBatch) batchParts(m *Message) ([]*genai.Part, error) {
+	parts := make([]*genai.Part, 0, len(m.files)+len(m.imagefiles)+len(m.images)+1)
 
 	if prompt := strings.TrimSpace(m.RenderPromt()); prompt != "" {
 		parts = append(parts, &genai.Part{Text: prompt})
 	}
+
+	// files uploaded before (UploadFile)
+	fileparts, err := geminiFileParts(context.Background(), a.conn, a.engine.getToken(), m)
+	if err != nil {
+		return nil, err
+	}
+	parts = append(parts, fileparts...)
 
 	for _, img := range m.images {
 		if img == nil {
@@ -165,7 +175,7 @@ func geminiBatchParts(m *Message) []*genai.Part {
 		}})
 	}
 
-	return parts
+	return parts, nil
 }
 
 func geminiBatchConfig(m *Message) *genai.GenerateContentConfig {

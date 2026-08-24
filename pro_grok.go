@@ -15,7 +15,7 @@ func Grok(token string, model ...*Model) (a Engine) {
 	case true:
 		p.model = model[0]
 	default:
-		p.model = &Model_Grok_4_Fast_x1_3
+		p.model = &Model_Grok
 	}
 
 	p.conn = openai.NewClient(option.WithAPIKey(token), option.WithBaseURL("https://api.x.ai/v1"))

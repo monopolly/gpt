@@ -2,6 +2,7 @@ package gpt
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/go-deepseek/deepseek"
@@ -29,10 +30,35 @@ type deep struct {
 	model    *Model
 	provider Provider
 	token    string
+
+	fallback []Engine
 }
 
 func (a *deep) Provider() Provider {
 	return a.provider
+}
+
+func (a *deep) Fallback(v ...Engine) Engine {
+	a.fallback = append(a.fallback, v...)
+	return a
+}
+
+// deepseek has no files api
+
+func (a *deep) UploadFile(body []byte, filename ...string) (fileID string, err error) {
+	return "", errors.New("deepseek files api is not supported")
+}
+
+func (a *deep) AddFiles(conversationID string, filesID ...string) (err error) {
+	return errors.New("deepseek files api is not supported")
+}
+
+func (a *deep) AddImageFiles(conversationID string, filesID ...string) (err error) {
+	return errors.New("deepseek files api is not supported")
+}
+
+func (a *deep) DeleteFiles(filesID ...string) (err error) {
+	return errors.New("deepseek files api is not supported")
 }
 
 func (a *deep) Model(v ...*Model) *Model {
@@ -77,7 +103,7 @@ func (a *deep) Send(m *Message) (err error) {
 	t1 := time.Now()
 
 	req := &request.ChatCompletionsRequest{
-		Model:    a.model.Name,
+		Model:    a.model.ID,
 		Stream:   false,
 		Messages: []*request.Message{{Role: "user", Content: promt}},
 	}
@@ -97,6 +123,13 @@ func (a *deep) Send(m *Message) (err error) {
 
 	resp, err := a.conn.CallChatCompletionsChat(context.Background(), req)
 	if err != nil {
+		for _, x := range a.fallback {
+			err = nil
+			err = x.Send(m)
+			if err != nil {
+				continue
+			}
+		}
 		return
 	}
 

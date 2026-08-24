@@ -93,7 +93,7 @@ func (a *grokBatch) pushResults(ctx context.Context) (results []BatchResult, err
 
 func (a *grokBatch) renderRequests(messages []*Message) ([]map[string]any, map[string]*Message, error) {
 	model := a.engine.Model()
-	if model == nil || model.Name == "" {
+	if model == nil || model.ID == "" {
 		return nil, nil, errors.New("grok batch: empty model")
 	}
 
@@ -131,7 +131,7 @@ func (a *grokBatch) renderRequests(messages []*Message) ([]map[string]any, map[s
 
 func (a *grokBatch) messageBody(model *Model, m *Message) map[string]any {
 	body := map[string]any{
-		"model": model.Name,
+		"model": model.ID,
 		"input": batchInput(m),
 	}
 

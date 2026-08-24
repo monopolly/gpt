@@ -8,6 +8,13 @@ type Engine interface {
 
 	getToken() string
 	Image(*ImageReq) (ImageResp, error)
+	Fallback(...Engine) Engine
+
+	UploadFile(body []byte, filename ...string) (fileID string, err error)
+	// AddFiles(conversationID string, filesID ...string) (err error)
+	// AddImageFiles(conversationID string, filesID ...string) (err error)
+	DeleteFiles(filesID ...string) (err error)
+
 	// Video(*ImageReq) error
 	// Batch() *Batch
 
