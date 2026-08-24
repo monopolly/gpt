@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -100,7 +101,7 @@ func (a *gpt) Send(m *Message) (err error) {
 	req := responses.ResponseNewParams{
 		Model: a.model.ID,
 		Input: responses.ResponseNewParamsInputUnion{
-			OfInputItemList: buildUserInput(m, promt),
+			OfInputItemList: buildUserInput(m, promt, a.provider),
 		},
 	}
 	if m.store {
@@ -531,7 +532,7 @@ func (a *gpt) filesSupported() error {
 }
 
 // buildUserInput assembles a single user message from the request files, images and prompt.
-func buildUserInput(m *Message, promt string) responses.ResponseInputParam {
+func buildUserInput(m *Message, promt string, provider Provider) responses.ResponseInputParam {
 	var content responses.ResponseInputMessageContentListParam
 
 	// documents uploaded before (UploadFile)
@@ -555,6 +556,29 @@ func buildUserInput(m *Message, promt string) responses.ResponseInputParam {
 			OfInputImage: &responses.ResponseInputImageParam{
 				Detail: responses.ResponseInputImageDetailAuto,
 				FileID: openai.String(id),
+			},
+		})
+	}
+
+	// documents by a public link (AddFileURL), openai only, x.ai takes images only
+	for _, u := range m.fileurls {
+		if provider != ProviderGPT {
+			log.Printf("%s: document links are not supported, skip %s", provider.Title(), u)
+			continue
+		}
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputFile: &responses.ResponseInputFileParam{
+				FileURL: openai.String(u),
+			},
+		})
+	}
+
+	// images by a public link (AddFileURL, AddImageURL)
+	for _, u := range m.imageurls {
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputImage: &responses.ResponseInputImageParam{
+				Detail:   responses.ResponseInputImageDetailAuto,
+				ImageURL: openai.String(u),
 			},
 		})
 	}

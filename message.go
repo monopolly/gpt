@@ -50,6 +50,8 @@ type Message struct {
 	images       []*images.Image //base64 or links
 	files        []string        //uploaded file id (documents: pdf, txt, json...)
 	imagefiles   []string        //uploaded file id (images)
+	fileurls     []string        //remote file links (documents: pdf...)
+	imageurls    []string        //remote file links (images)
 	result       any             // &Res
 	schema       map[string]any  //json schema
 	schemarender string          //json string {"":1...}
@@ -334,7 +336,7 @@ func (a *Message) imagesSize() (bytes int) {
 }
 
 // attach files uploaded before (fileID from Engine.UploadFile): pdf, text, json, csv...
-func (a *Message) AddFiles(fileIDs ...string) (m *Message) {
+func (a *Message) AddFileIDs(fileIDs ...string) (m *Message) {
 	a.files = addFileIDs(a.files, fileIDs)
 	return a
 }
@@ -342,6 +344,34 @@ func (a *Message) AddFiles(fileIDs ...string) (m *Message) {
 // attach images uploaded before (fileID from Engine.UploadFile)
 func (a *Message) AddImageFiles(fileIDs ...string) (m *Message) {
 	a.imagefiles = addFileIDs(a.imagefiles, fileIDs)
+	return a
+}
+
+// attach files by a public link, no upload needed. image links (jpg, png, gif, webp)
+// go to the image slot automatically, everything else is sent as a document.
+//
+// provider support:
+//   - gpt: any file type (input_file.file_url), images (input_image.image_url)
+//   - claude: pdf only (document source url), images (image source url)
+//   - gemini: no remote links in the api, the link is downloaded and sent inline
+//   - grok: images only (input_image.image_url), document links are skipped
+//   - deepseek: no file input at all, links are ignored
+func (a *Message) AddFileURL(urls ...string) (m *Message) {
+	for _, u := range urls {
+		switch {
+		case isImageURL(u):
+			a.imageurls = addFileURLs(a.imageurls, []string{u})
+		default:
+			a.fileurls = addFileURLs(a.fileurls, []string{u})
+		}
+	}
+	return a
+}
+
+// attach images by a public link, no upload and no download (unlike AddImage).
+// use it when the link has no image extension and AddFileURL cannot detect it.
+func (a *Message) AddImageURL(urls ...string) (m *Message) {
+	a.imageurls = addFileURLs(a.imageurls, urls)
 	return a
 }
 
@@ -355,10 +385,22 @@ func (a *Message) ImageFiles() []string {
 	return a.imagefiles
 }
 
-// drop all attached file ids
+// attached document links
+func (a *Message) FileURLs() []string {
+	return a.fileurls
+}
+
+// attached image links
+func (a *Message) ImageURLs() []string {
+	return a.imageurls
+}
+
+// drop all attached file ids and links
 func (a *Message) ClearFiles() (m *Message) {
 	a.files = nil
 	a.imagefiles = nil
+	a.fileurls = nil
+	a.imageurls = nil
 	return a
 }
 
@@ -370,6 +412,22 @@ func addFileIDs(list []string, add []string) []string {
 			continue
 		}
 		list = append(list, id)
+	}
+	return list
+}
+
+// clean, dedup and append http links
+func addFileURLs(list []string, add []string) []string {
+	for _, u := range add {
+		u = strings.TrimSpace(u)
+		if u == "" || slices.Contains(list, u) {
+			continue
+		}
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			log.Printf("gpt: file url must be http(s): %s", u)
+			continue
+		}
+		list = append(list, u)
 	}
 	return list
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monopolly/file"
 	"google.golang.org/genai"
 )
 
@@ -230,7 +231,12 @@ func (a *gemini) Send(m *Message) (err error) {
 		return err
 	}
 
-	for _, part := range append(fileparts, a.images(m)...) {
+	urlparts, err := geminiURLParts(m)
+	if err != nil {
+		return err
+	}
+
+	for _, part := range append(append(fileparts, urlparts...), a.images(m)...) {
 		if part == nil {
 			continue
 		}
@@ -364,6 +370,29 @@ func geminiFileGet(token, name string) (res geminiFileData, ok bool) {
 	geminiFilesMu.RLock()
 	res, ok = geminiFiles[geminiFileKey(token, name)]
 	geminiFilesMu.RUnlock()
+	return
+}
+
+// gemini has no remote link input: file_data.file_uri accepts only files api
+// uris (and youtube links), so links from AddFileURL are downloaded and sent inline.
+func geminiURLParts(m *Message) (parts []*genai.Part, err error) {
+	urls := append(append([]string{}, m.fileurls...), m.imageurls...)
+	if len(urls) == 0 {
+		return nil, nil
+	}
+
+	for _, u := range urls {
+		body := file.Download(u)
+		if len(body) == 0 {
+			return nil, fmt.Errorf("gemini download error: %s", u)
+		}
+
+		parts = append(parts, &genai.Part{InlineData: &genai.Blob{
+			Data:     body,
+			MIMEType: fileMime(body, urlFileName(u)),
+		}})
+	}
+
 	return
 }
 

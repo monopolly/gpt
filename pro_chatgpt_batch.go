@@ -246,7 +246,7 @@ func (a *gptBatch) ensureConversation(ctx context.Context, m *Message) error {
 }
 
 func batchInput(m *Message) []map[string]any {
-	content := make([]map[string]any, 0, len(m.files)+len(m.imagefiles)+len(m.images)+1)
+	content := make([]map[string]any, 0, len(m.files)+len(m.imagefiles)+len(m.fileurls)+len(m.imageurls)+len(m.images)+1)
 
 	// documents uploaded before (UploadFile)
 	for _, id := range m.files {
@@ -270,6 +270,23 @@ func batchInput(m *Message) []map[string]any {
 			"type":    "input_image",
 			"file_id": id,
 			"detail":  "auto",
+		})
+	}
+
+	// documents by a public link (AddFileURL)
+	for _, u := range m.fileurls {
+		content = append(content, map[string]any{
+			"type":     "input_file",
+			"file_url": u,
+		})
+	}
+
+	// images by a public link (AddFileURL, AddImageURL)
+	for _, u := range m.imageurls {
+		content = append(content, map[string]any{
+			"type":      "input_image",
+			"image_url": u,
+			"detail":    "auto",
 		})
 	}
 

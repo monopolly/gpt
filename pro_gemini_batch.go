@@ -152,7 +152,7 @@ func (a *geminiBatch) renderRequests(messages []*Message, model *Model) ([]*gena
 }
 
 func (a *geminiBatch) batchParts(m *Message) ([]*genai.Part, error) {
-	parts := make([]*genai.Part, 0, len(m.files)+len(m.imagefiles)+len(m.images)+1)
+	parts := make([]*genai.Part, 0, len(m.files)+len(m.imagefiles)+len(m.fileurls)+len(m.imageurls)+len(m.images)+1)
 
 	if prompt := strings.TrimSpace(m.RenderPromt()); prompt != "" {
 		parts = append(parts, &genai.Part{Text: prompt})
@@ -164,6 +164,13 @@ func (a *geminiBatch) batchParts(m *Message) ([]*genai.Part, error) {
 		return nil, err
 	}
 	parts = append(parts, fileparts...)
+
+	// links by AddFileURL are downloaded, gemini has no remote link input
+	urlparts, err := geminiURLParts(m)
+	if err != nil {
+		return nil, err
+	}
+	parts = append(parts, urlparts...)
 
 	for _, img := range m.images {
 		if img == nil {

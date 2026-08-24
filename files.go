@@ -121,3 +121,38 @@ func newUploadFile(body []byte, filename ...string) uploadFile {
 func (a uploadFile) Filename() string    { return a.filename }
 func (a uploadFile) Name() string        { return a.filename }
 func (a uploadFile) ContentType() string { return a.mime }
+
+// base filename from a url path, query, fragment and cdn params are ignored:
+// /a/b/image.jpg;quality=55?v=2 -> image.jpg
+func urlFileName(u string) string {
+	p := u
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		p = p[i+1:]
+	}
+	// some cdns append params after ';': image.jpg;quality=55;h=1280
+	if i := strings.Index(p, ";"); i >= 0 {
+		p = p[:i]
+	}
+	if !strings.Contains(p, ".") {
+		return ""
+	}
+	return p
+}
+
+// file extension from a url path, empty if the path has none
+func urlExt(u string) string {
+	name := urlFileName(u)
+	i := strings.LastIndex(name, ".")
+	if i < 0 {
+		return ""
+	}
+	return strings.ToLower(name[i+1:])
+}
+
+// image link by its extension (jpg, jpeg, png, gif, webp)
+func isImageURL(u string) bool {
+	return strings.HasPrefix(extMime(urlExt(u)), "image/")
+}

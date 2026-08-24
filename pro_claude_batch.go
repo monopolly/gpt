@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -158,7 +159,7 @@ func (a *claudeBatch) messageParams(model *Model, m *Message) anthropic.MessageB
 
 // user content: uploaded files, uploaded images, inline images, promt
 func claudeBlocks(m *Message) []anthropic.ContentBlockParamUnion {
-	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.files)+len(m.imagefiles)+len(m.images)+1)
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.files)+len(m.imagefiles)+len(m.fileurls)+len(m.imageurls)+len(m.images)+1)
 
 	// documents uploaded before (UploadFile)
 	for _, id := range m.files {
@@ -174,6 +175,20 @@ func claudeBlocks(m *Message) []anthropic.ContentBlockParamUnion {
 			continue
 		}
 		blocks = append(blocks, claudeFileBlock("image", id))
+	}
+
+	// documents by a public link (AddFileURL), pdf only
+	for _, u := range m.fileurls {
+		if ext := urlExt(u); ext != "" && ext != "pdf" {
+			log.Printf("claude: only pdf links are supported as documents, skip %s", u)
+			continue
+		}
+		blocks = append(blocks, anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{URL: u}))
+	}
+
+	// images by a public link (AddFileURL, AddImageURL)
+	for _, u := range m.imageurls {
+		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: u}))
 	}
 
 	for _, img := range m.images {
