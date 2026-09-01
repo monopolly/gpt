@@ -1,13 +1,10 @@
 package gpt
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
-
-	"github.com/invopop/jsonschema"
 )
 
 func CleanMarkdown(body string) (res string) {
@@ -55,27 +52,6 @@ func CompactText(s string) string {
 	// 5. Финальный trim
 	s = strings.TrimSpace(s)
 	return s
-}
-
-// map
-func GenerateSchemaFromType(t reflect.Type) map[string]any {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		DoNotReference:            true,
-	}
-
-	// invopop/jsonschema умеет ReflectFromType
-	s := reflector.ReflectFromType(t)
-
-	var m map[string]any
-	b, _ := json.Marshal(s)
-	_ = json.Unmarshal(b, &m)
-	return m
-}
-
-// schema
-func GenerateSchema(structure any) (res *jsonschema.Schema) {
-	return jsonschema.Reflect(structure)
 }
 
 func StructToText(v any, structname ...string) (res string) {

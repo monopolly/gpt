@@ -87,7 +87,10 @@ func (a *gpt) Send(m *Message) (err error) {
 		m.name = "request"
 	}
 
-	if m.result != nil {
+	// strict json schema уходит в text.format, дублировать её в instructions нельзя:
+	// instructions идут в начале промта, и своя схема на каждом шаге ломает
+	// префиксный кеш всей истории conversation
+	if m.result != nil && len(m.schema) == 0 {
 		applySystemPromtStruct(m)
 	}
 
@@ -434,6 +437,54 @@ func (a *gpt) UploadFile(body []byte, filename ...string) (fileID string, err er
 	}
 
 	return resp.ID, nil
+}
+
+// create an empty conversation, no model call and no tokens
+func (a *gpt) NewConversation() (conversationID string, err error) {
+	ctx := context.Background()
+
+	conv, err := a.conn.Conversations.New(ctx, conversations.ConversationNewParams{})
+	if err != nil {
+		return "", err
+	}
+	if conv.ID == "" {
+		return "", errors.New("openai conversation: empty id")
+	}
+
+	return conv.ID, nil
+}
+
+// add plain text to an existing chat conversation, no model call and no tokens
+func (a *gpt) AddText(conversationID string, text ...string) (err error) {
+	if conversationID == "" {
+		return errors.New("openai add text: empty conversation id")
+	}
+
+	var content responses.ResponseInputMessageContentListParam
+	for _, x := range text {
+		if strings.TrimSpace(x) == "" {
+			continue
+		}
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputText: &responses.ResponseInputTextParam{
+				Text: x,
+			},
+		})
+	}
+	if len(content) == 0 {
+		return nil
+	}
+
+	ctx := context.Background()
+	_, err = a.conn.Conversations.Items.New(ctx, conversationID, conversations.ItemNewParams{
+		Items: responses.ResponseInputParam{
+			responses.ResponseInputItemParamOfMessage(
+				content,
+				responses.EasyInputMessageRoleUser,
+			),
+		},
+	})
+	return
 }
 
 // add files to an existing chat conversation as images (input_image)

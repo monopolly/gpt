@@ -49,6 +49,16 @@ func (a *deep) UploadFile(body []byte, filename ...string) (fileID string, err e
 	return "", errors.New("deepseek files api is not supported")
 }
 
+// deepseek has no server side conversations
+func (a *deep) NewConversation() (conversationID string, err error) {
+	return "", errors.New("deepseek has no conversations api")
+}
+
+// deepseek has no server side conversations
+func (a *deep) AddText(conversationID string, text ...string) (err error) {
+	return errors.New("deepseek has no conversations api")
+}
+
 func (a *deep) AddFiles(conversationID string, filesID ...string) (err error) {
 	return errors.New("deepseek files api is not supported")
 }

@@ -103,6 +103,16 @@ func (a *claude) DeleteFiles(filesID ...string) (err error) {
 
 // claude has no server side conversations, attach files to the message instead:
 // Message.AddFiles / Message.AddImageFiles
+// claude has no server side conversations
+func (a *claude) NewConversation() (conversationID string, err error) {
+	return "", errors.New("claude has no conversations: use Message promts")
+}
+
+// claude has no server side conversations
+func (a *claude) AddText(conversationID string, text ...string) (err error) {
+	return errors.New("claude has no conversations: use Message promts")
+}
+
 func (a *claude) AddFiles(conversationID string, filesID ...string) (err error) {
 	return errors.New("claude has no conversations: use Message.AddFiles")
 }

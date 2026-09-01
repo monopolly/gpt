@@ -159,6 +159,16 @@ func (a *gemini) DeleteFiles(filesID ...string) (err error) {
 
 // gemini has no server side conversations, attach files to the message instead:
 // Message.AddFiles / Message.AddImageFiles
+// gemini has no server side conversations
+func (a *gemini) NewConversation() (conversationID string, err error) {
+	return "", errors.New("gemini has no conversations: use Message promts")
+}
+
+// gemini has no server side conversations
+func (a *gemini) AddText(conversationID string, text ...string) (err error) {
+	return errors.New("gemini has no conversations: use Message promts")
+}
+
 func (a *gemini) AddFiles(conversationID string, filesID ...string) (err error) {
 	return errors.New("gemini has no conversations: use Message.AddFiles")
 }
